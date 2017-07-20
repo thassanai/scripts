@@ -1,0 +1,229 @@
+# VERSION: 1.6.0
+
+FROM ubuntu:16.10
+
+MAINTAINER Thibault NORMAND <me@zenithar.org>
+
+# Set the env variable DEBIAN_FRONTEND to noninteractive
+ENV DEBIAN_FRONTEND noninteractive
+
+# Fix locales
+RUN locale-gen en_US.UTF-8 && dpkg-reconfigure locales
+
+# Enable universe & src
+RUN sed -i s/main/'main universe'/ /etc/apt/sources.list
+
+# Run upgrades
+RUN echo udev hold | dpkg --set-selections && \
+    echo initscripts hold | dpkg --set-selections &&\
+    echo upstart hold | dpkg --set-selections &&\
+    apt-get update -q &&\
+    apt-get -y upgrade
+# Install build tools for nginx
+RUN apt-get -y install wget git unzip file build-essential automake autoconf libtool binutils cmake golang
+
+# Download nginx
+WORKDIR /usr/src
+
+ENV PCRE_VERSION 8.40
+RUN wget ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre-${PCRE_VERSION}.tar.gz &&\
+    tar -xf pcre-${PCRE_VERSION}.tar.gz &&\
+    rm -f pcre-${PCRE_VERSION}.tar.gz
+
+ENV ZLIB_VERSION 1.2.11
+RUN wget http://zlib.net/zlib-${ZLIB_VERSION}.tar.gz &&\
+    tar -xf zlib-${ZLIB_VERSION}.tar.gz &&\
+    rm -f zlib-${ZLIB_VERSION}.tar.gz
+
+COPY boringssl.patch /tmp/boringssl.patch
+RUN git clone https://boringssl.googlesource.com/boringssl --depth=1 &&\
+    cd /usr/src/boringssl &&\
+    sed -i 's@out \([>=]\) TLS1_2_VERSION@out \1 TLS1_3_VERSION@' ssl/ssl_lib.c &&\
+    sed -i 's@ssl->version[ ]*=[ ]*TLS1_2_VERSION@ssl->version = TLS1_3_VERSION@' ssl/s3_lib.c &&\
+    sed -i 's@(SSL3_VERSION, TLS1_2_VERSION@(SSL3_VERSION, TLS1_3_VERSION@' ssl/ssl_test.cc &&\
+    sed -i 's@\$shaext[ ]*=[ ]*0;@\$shaext = 1;@' crypto/*/asm/*.pl &&\
+    sed -i 's@\$avx[ ]*=[ ]*[0|1];@\$avx = 2;@' crypto/*/asm/*.pl &&\
+    sed -i 's@\$addx[ ]*=[ ]*0;@\$addx = 1;@' crypto/*/asm/*.pl &&\
+#    patch -p1 < /tmp/boringssl.patch &&\
+    mkdir build &&\
+    cd build &&\
+    cmake -DCMAKE_BUILD_TYPE=Release .. &&\
+    make -j4 &&\
+    cd .. &&\
+    mkdir -p .openssl/lib &&\
+    cd .openssl &&\
+    ln -s ../include &&\
+    cd .. &&\
+    cp build/crypto/libcrypto.a build/ssl/libssl.a .openssl/lib &&\
+    cd /usr/src
+
+# Modules
+
+ENV NDK_VERSION 0.3.0
+RUN wget https://github.com/simpl/ngx_devel_kit/archive/v${NDK_VERSION}.tar.gz &&\
+    tar -xf v${NDK_VERSION}.tar.gz &&\
+    rm -f v${NDK_VERSION}.tar.gz
+
+ENV PSOL_VERSION 1.11.33.4
+RUN wget https://github.com/pagespeed/ngx_pagespeed/archive/latest-stable.zip &&\
+    unzip latest-stable.zip &&\
+    rm -f latest-stable.zip &&\
+    cd ngx_pagespeed-latest-stable &&\
+    wget https://dl.google.com/dl/page-speed/psol/${PSOL_VERSION}.tar.gz &&\
+    tar -xf ${PSOL_VERSION}.tar.gz &&\
+    rm -f ${PSOL_VERSION}.tar.gz
+
+RUN git clone --recursive https://github.com/google/ngx_brotli --depth=1 &&\
+    cd /usr/src/ngx_brotli/deps/brotli &&\
+    make
+
+RUN git clone https://github.com/openresty/headers-more-nginx-module --depth=1
+
+RUN git clone https://github.com/grahamedgecombe/nginx-ct --depth=1
+
+RUN git clone https://github.com/nbs-system/naxsi --depth=1
+
+RUN git clone https://github.com/aperezdc/ngx-fancyindex --depth=1
+
+RUN git clone https://github.com/openresty/srcache-nginx-module --depth=1
+
+ENV LUAJIT_VERSION 2.0.4
+RUN wget http://luajit.org/download/LuaJIT-${LUAJIT_VERSION}.tar.gz &&\
+    tar -xf LuaJIT-${LUAJIT_VERSION}.tar.gz &&\
+    rm -f LuaJIT-${LUAJIT_VERSION}.tar.gz &&\
+    cd /usr/src/LuaJIT-${LUAJIT_VERSION} &&\
+    make &&\
+    make install
+
+ENV LUA_MOD_VERSION 0.10.7
+RUN git clone https://github.com/openresty/lua-nginx-module --depth=1
+
+# LUA fixes
+
+#RUN cd /usr/src/lua-nginx-module &&\
+#    wget -O- https://raw.githubusercontent.com/macports/macports-ports/master/www/nginx/files/patch-src-ngx_http_lua_headers.c.diff | patch -p1
+
+# NGINX
+
+ENV NGINX_VERSION 1.13.1
+RUN wget http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz &&\
+    tar -xf nginx-${NGINX_VERSION}.tar.gz &&\
+    rm -f nginx-${NGINX_VERSION}.tar.gz
+
+# Apply custom patches
+
+WORKDIR /usr/src/nginx-${NGINX_VERSION}
+
+# Anonymization + SSL TTFB
+# RUN wget -O- https://gist.githubusercontent.com/Zenithar/70bbb4343d4d9eee4d86/raw/7ae429c4ad7d1d6756b00f17081d78fc52695eb1/anonymize_nginx.patch | patch -p1
+# SPDY CloudFlare
+RUN wget -O- https://raw.githubusercontent.com/Injust/sslconfig/5930c628d475023de6d224d0733a3a2a08b829fe/patches/nginx__1.11.11_http2_spdy.patch | patch -p1
+# Dynamic TLS records
+RUN wget -O- https://raw.githubusercontent.com/cloudflare/sslconfig/master/patches/nginx__1.11.5_dynamic_tls_records.patch | patch -p1
+# Boring SSL fixes
+#RUN wget -O- https://gist.githubusercontent.com/Zenithar/66dedc0e4dbe54ecb8949822526634a7/raw/e045413922dd18f6fc89634ed116eae9c27afbde/boringssl_nginx.patch | patch -p1
+
+# Configure
+
+RUN cd /usr/src/nginx-${NGINX_VERSION} && ./configure \
+    --prefix=/opt/nginx \
+    --with-cc-opt="-O3 -fPIE -fexceptions -fstack-protector-strong -Wp,-D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security -I ../boringssl/.openssl/include/ -Wno-deprecated-declarations" \
+    --with-ld-opt="-Wl,-Bsymbolic-functions -Wl,-z,relro -L ../boringssl/.openssl/lib" \
+    --user=nobody \
+    --group=nogroup \
+    --conf-path=/etc/nginx/nginx.conf \
+    --error-log-path=/var/log/nginx/error.log \
+    --sbin-path=/usr/sbin/nginx \
+    --http-client-body-temp-path=/var/lib/nginx/body \
+    --http-fastcgi-temp-path=/var/lib/nginx/fastcgi \
+    --http-log-path=/var/log/nginx/access.log \
+    --http-proxy-temp-path=/var/lib/nginx/proxy \
+    --http-scgi-temp-path=/var/lib/nginx/scgi \
+    --http-uwsgi-temp-path=/var/lib/nginx/uwsgi \
+    --lock-path=/var/lock/nginx.lock \
+    --pid-path=/var/run/nginx.pid \
+    --with-http_addition_module \
+    --with-http_secure_link_module \
+    --with-http_dav_module \
+    --with-http_gzip_static_module \
+    --with-http_realip_module \
+    --with-http_stub_status_module \
+    --with-http_ssl_module \
+    --with-http_v2_module \
+    --with-http_spdy_module \
+    --with-http_sub_module \
+    --with-mail \
+    --with-mail_ssl_module \
+    --with-stream \
+    --with-stream_realip_module \
+    --with-stream_ssl_module \
+    --with-file-aio \
+    --with-threads \
+    --without-http_autoindex_module \
+    --without-http_ssi_module \
+    --without-http_scgi_module \
+    --without-http_uwsgi_module \
+    --without-http_geo_module \
+    --without-http_map_module \
+    --without-http_split_clients_module \
+    --without-http_memcached_module \
+    --without-http_empty_gif_module \
+    --without-http_browser_module \
+    --with-openssl=/usr/src/boringssl \
+    --with-openssl-opt=enable-tls1_3 \
+    --with-pcre=/usr/src/pcre-${PCRE_VERSION} \
+    --with-pcre-jit \
+    --with-zlib=/usr/src/zlib-${ZLIB_VERSION} \
+    --add-module=/usr/src/ngx_devel_kit-${NDK_VERSION} \
+    --add-module=/usr/src/naxsi/naxsi_src \
+    --add-module=/usr/src/ngx_pagespeed-latest-stable \
+    --add-module=/usr/src/headers-more-nginx-module \
+    --add-module=/usr/src/nginx-ct \
+    --add-module=/usr/src/ngx_brotli \
+    --add-module=/usr/src/ngx-fancyindex \
+    --add-module=/usr/src/srcache-nginx-module \
+    --add-module=/usr/src/lua-nginx-module &&\
+   mkdir -p /var/lib/nginx &&\
+   mkdir -p /www &&\
+   touch /usr/src/boringssl/.openssl/include/openssl/ssl.h
+
+RUN mkdir /rootfs
+RUN cd /usr/src/nginx-${NGINX_VERSION} && make -j4 && make DESTDIR=/rootfs install
+
+RUN apt-get install -qy busybox-static
+
+# Build Root FS for nano image creation
+WORKDIR /rootfs
+RUN mkdir -p bin etc dev dev/pts lib proc sys tmp usr
+RUN touch etc/resolv.conf
+RUN cp /etc/nsswitch.conf etc/nsswitch.conf
+RUN echo root:x:0:0:root:/:/bin/sh > etc/passwd
+RUN echo root:x:0: > etc/group
+RUN fgrep nobody /etc/passwd >> etc/passwd
+RUN fgrep nogroup /etc/group >> etc/group
+RUN ln -s lib lib64
+RUN ln -s usr/lib lib64
+RUN ln -s bin sbin
+RUN cp /bin/busybox bin
+RUN for X in $(busybox --list) ; do ln -s busybox bin/$X ; done
+RUN mkdir lib/x86_64-linux-gnu
+RUN bash -c "cp -a /lib/x86_64-linux-gnu/lib{c,dl,nsl,nss_,pthread,resolv,rt,m,gcc_s}* lib/x86_64-linux-gnu"
+RUN bash -c "cp -a /usr/lib/x86_64-linux-gnu/libstdc++.* lib/x86_64-linux-gnu"
+RUN bash -c "cp -a /lib/x86_64-linux-gnu/libcrypto.* lib/x86_64-linux-gnu"
+RUN bash -c "cp -a /usr/local/lib/libluajit-* lib/x86_64-linux-gnu"
+RUN bash -c "cp -a /usr/local/bin/* bin"
+RUN bash -c "cp -a /usr/src/ngx_brotli/deps/brotli/bin/bro bin"
+RUN strip -s /rootfs/bin/bro
+RUN strip -s /rootfs/bin/luajit
+RUN mkdir -p usr/local/share/lua
+RUN mkdir -p usr/local/share/luajit-${LUAJIT_VERSION}
+RUN bash -c "cp -a /usr/local/share/lua/* usr/local/share/lua/"
+RUN bash -c "cp -a /usr/local/share/luajit-* usr/local/share/"
+ENV LUA_PATH /usr/local/share/lua/5.1/?.lua;/usr/local/share/luajit-${LUAJIT_VERSION}/?.lua;
+RUN cp /lib64/ld-linux-x86-64.so.2 lib
+RUN strip -s /rootfs/usr/sbin/nginx
+COPY nginx /rootfs/etc/nginx
+RUN bash -c "mkdir -p /rootfs/var/lib/nginx/{body,fastcgi,proxy,scgi,uwsgi}"
+RUN mkdir /rootfs/www && bash -c "mkdir -p /rootfs/www/{empty,default}" && mv /rootfs/opt/nginx/html/* /rootfs/www/default && rm -Rf /rootfs/opt/nginx && chown -R nobody:nogroup /rootfs/www
+RUN tar cf /rootfs.tar .
+RUN for X in console null ptmx random stdin stdout stderr tty urandom zero ; do tar uf /rootfs.tar -C/ ./dev/$X ; done
