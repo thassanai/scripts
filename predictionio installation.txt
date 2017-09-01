@@ -31,7 +31,7 @@ apt install libxml2-dev libmcrypt-dev libpq-dev
 config pio-env.conf
 
 download https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-5.1.42.zip
-¡“‰«È„π PIO_HOME lib
+√Å√í√§√á√©√£¬π PIO_HOME lib
 
 
 apt install ruby ruby-bundler ruby-dev ruby-all-dev
