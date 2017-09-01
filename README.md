@@ -1,2 +1,2 @@
 # scripts
-Please consider on my script. Some scripts may useful for you.
+Please consider on my scripts. Some scripts may be useful for you.
