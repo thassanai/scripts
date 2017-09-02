@@ -14,7 +14,7 @@ for MY_DEVICE in {0..5}
 do
         # Check if card exists
         if nvidia-smi -i $MY_DEVICE >> /dev/null 2>&1; then
-                strTemp+="GPU$MY_DEVICE :"$(nvidia-smi -i $MY_DEVICE --format=noheader,csv --query-gpu='power.draw,fan.speed,temperature.gpu,clocks.video,clocks.mem')" ";
+                strTemp+="GPU$MY_DEVICE :"$(nvidia-smi -i $MY_DEVICE --format=noheader,csv --query-gpu='temperature.gpu,fan.speed,power.draw')" ";
         fi
 done
 
