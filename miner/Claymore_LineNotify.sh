@@ -3,7 +3,7 @@
 # Claymore Linux Line Notify 
 # Thassanai Mhuansean
 
-LINE_TOKEN='Yx59jDKburD8ffWbZCE7IYyqhzRYDXCXEet55zxj4Ld'
+LINE_TOKEN=''
 LINE_MINER='Miner01'
 CLAYMORE_API="localhost 3333"
 
