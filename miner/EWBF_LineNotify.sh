@@ -9,7 +9,7 @@
 #
 
 #Line Token ID
-LINE_TOKEN='Yx59jDKburD8ffWbZCE7IYyqhzRYDXCXEet55zxj4Ld'
+LINE_TOKEN=''
 LINE_MINER='Miner01'
 EWBF_API="http://127.0.0.1:42000/getstat"
 
