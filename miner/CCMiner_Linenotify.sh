@@ -2,7 +2,7 @@
 
 # CCMiner Linux Line Notify 
 
-LINE_TOKEN='Yx59jDKburD8ffWbZCE7IYyqhzRYDXCXEet55zxj4Ld'
+LINE_TOKEN=''
 LINE_MINER='Miner01'
 MINER_API="localhost 4086"
 
